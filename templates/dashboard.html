@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Management Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .dashboard-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .back-button {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>Traffic Management Dashboard</h1>
+            <p>Overview of Traffic Data and Statistics</p>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Traffic State Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="trafficDistributionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Traffic Trends Over Time</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="trafficTrendsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Gate Status Overview</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="gateStatusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <a href="/"><button class="btn btn-secondary back-button">Back to Home</button></a>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Fetch traffic data and update the dashboard
+        fetch('/traffic_data')
+            .then(response => response.json())
+            .then(data => {
+                // Prepare data for the traffic distribution chart
+                const trafficDistribution = data.traffic_distribution;
+                const distributionLabels = Object.keys(trafficDistribution);
+                const distributionValues = Object.values(trafficDistribution);
+
+                // Create traffic distribution chart
+                const ctxDistribution = document.getElementById('trafficDistributionChart').getContext('2d');
+                const trafficDistributionChart = new Chart(ctxDistribution, {
+                    type: 'pie',
+                    data: {
+                        labels: distributionLabels,
+                        datasets: [{
+                            label: 'Traffic State Distribution',
+                            data: distributionValues,
+                            backgroundColor: [
+                                'rgba(75, 192, 192, 0.6)',
+                                'rgba(255, 99, 132, 0.6)',
+                                'rgba(255, 206, 86, 0.6)',
+                                'rgba(54, 162, 235, 0.6)',
+                                'rgba(153, 102, 255, 0.6)'
+                            ],
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Traffic State Distribution'
+                            }
+                        }
+                    }
+                });
+
+                // Prepare data for the traffic trends chart
+                const timestamps = data.data.map(record => record.Timestamp); // Assuming 'Timestamp' is in your CSV
+                const trafficStates = data.data.map(record => record['Traffic State']); // Example data for trends
+                
+                // Create traffic trends chart
+                const ctxTrends = document.getElementById('trafficTrendsChart').getContext('2d');
+                const trafficTrendsChart = new Chart(ctxTrends, {
+                    type: 'line',
+                    data: {
+                        labels: timestamps,
+                        datasets: [{
+                            label: 'Traffic States Over Time',
+                            data: trafficStates.map(state => {
+                                // Convert states to numerical values for plotting (you might need to adjust this)
+                                return state === 'High' ? 2 : state === 'Medium' ? 1 : 0; // Example mapping
+                            }),
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            fill: true,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                            },
+                            title: {
+                                display: true,
+                                text: 'Traffic Trends Over Time'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value === 2 ? 'High' : value === 1 ? 'Medium' : 'Low';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Prepare data for gate status chart (this assumes you have gate status in your data)
+                const gateStatusData = data.data.map(record => record['Gate State']); // Example data for gate status
+                const gateStatusCounts = {
+                    Open: gateStatusData.filter(status => status === 'Open').length,
+                    Closed: gateStatusData.filter(status => status === 'Closed').length,
+                };
+
+                // Create gate status overview chart
+                const ctxGateStatus = document.getElementById('gateStatusChart').getContext('2d');
+                const gateStatusChart = new Chart(ctxGateStatus, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(gateStatusCounts),
+                        datasets: [{
+                            label: 'Gate Status Count',
+                            data: Object.values(gateStatusCounts),
+                            backgroundColor: [
+                                'rgba(54, 162, 235, 0.6)',
+                                'rgba(255, 99, 132, 0.6)',
+                            ],
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Gate Status Overview'
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching traffic data:', error);
+            });
+    </script>
+</body>
+</html>

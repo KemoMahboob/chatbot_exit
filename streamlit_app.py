@@ -1,56 +1,122 @@
-import streamlit as st
-from openai import OpenAI
+import os
+from flask import Flask, render_template, request, jsonify
+import pandas as pd
+from langchain.prompts import PromptTemplate
+from langchain import LLMChain
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+load_dotenv()  # Load environment variables from .env file
+
+app = Flask(__name__)
+
+# Initialize ChatGroq LLM
+groq_api_key = os.getenv("GROQ_API_KEY")
+if groq_api_key is None:
+    raise ValueError("GROQ_API_KEY environment variable not set")
+
+llm = ChatGroq(
+    model='llama3-70b-8192',
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+    api_key=groq_api_key
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Function to generate a traffic report based on the CSV data
+def generate_traffic_report():
+    try:
+        file_path = os.path.join('assets', 'Exit 7 .csv')  # Ensure there are no spaces in the filename
+        if not os.path.isfile(file_path):
+            return "The traffic data file is not found."
+        
+        df = pd.read_csv(file_path)
+        latest_data = df.tail(1).to_dict(orient='records')[0]
+        
+        exit_name = latest_data.get('Exit')
+        location = latest_data.get('Location')
+        street = latest_data.get('Street')
+        traffic_state = latest_data.get('Traffic State')
+        gate_state = latest_data.get('Gate State')
+        timestamp = latest_data.get('Timestamp')
+        
+        report = f"""
+        ### Traffic Report for {exit_name}
+        
+        **Exit Name:** {exit_name}  
+        **Traffic State:** {traffic_state}  
+        **Location:** {location}  
+        **Street:** {street}  
+        **Gate State:** {gate_state}  
+        **Time:** {timestamp}
+        
+        Based on current traffic, you may need to close the gate if conditions worsen.
+        """
+        return report
+    except Exception as e:
+        return f"Error reading the data: {str(e)}"
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+# Define prompt template for the chatbot
+template = """
+### Instructions:
+You are an AI assistant designed to provide traffic management information in a conversational and helpful way, similar to ChatGPT. Your responses should be friendly, clear, and focused on the user's request.
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+*Use the provided traffic data to give an accurate, concise, and helpful response.* If the data is unclear or missing, explain that to the user and offer suggestions if needed. Always aim to guide the user in a conversational and supportive manner.
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+### Traffic Data:
+{context}
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+### Question: {question}
+---
+### Response:
+"""
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+prompt = PromptTemplate(
+    input_variables=["context", "question"],
+    template=template,
+)
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+chain = LLMChain(llm=llm, prompt=prompt)
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+@app.route('/')
+def home():
+    return '''
+    <h1>Welcome to Traffic Management System</h1>
+    <a href="/dashboard"><button>Go to Dashboard</button></a>
+    <a href="/chatbot"><button>Go to Chatbot</button></a>
+    '''
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+
+@app.route('/chatbot')
+def chatbot():
+    return render_template('chatbot.html')
+
+@app.route('/generate_report', methods=['POST'])
+def generate_report():
+    user_question = request.form.get("question")  # Changed from request.json to request.form
+    context = generate_traffic_report()
+    
+    # Generate response using the LLM chain
+    response = chain.run(context=context, question=user_question)
+    return jsonify({"response": response})
+
+@app.route('/traffic_data')
+def traffic_data():
+    file_path = os.path.join('assets', 'Exit 7 .csv')  # Ensure there are no spaces in the filename
+    
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        traffic_distribution = df['Traffic State'].value_counts().to_dict()
+        return jsonify({
+            "data": df.to_dict(orient='records'),
+            "traffic_distribution": traffic_distribution
+        })
+    else:
+        return jsonify({"error": "The traffic data file is not found."}), 404
+
+if __name__ == '__main__':
+    app.run(debug=True)
